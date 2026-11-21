@@ -202,6 +202,13 @@ async fn start_install(
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                let _ = fs::create_dir_all(&data_dir);
+                let _ = std::env::set_current_dir(&data_dir);
+            }
+            Ok(())
+        })
         .manage(AppState {
             two_factor_tx: Arc::new(Mutex::new(None)),
         })
