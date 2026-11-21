@@ -66,6 +66,17 @@ pub async fn fetch_latest_release(source_url: &str) -> Result<(AltApp, AltVersio
 }
 
 pub async fn download_ipa(version: &AltVersion, cache_dir: &Path) -> Result<PathBuf> {
+    download_ipa_with_progress(version, cache_dir, |_, _| {}).await
+}
+
+pub async fn download_ipa_with_progress<F>(
+    version: &AltVersion,
+    cache_dir: &Path,
+    mut on_progress: F,
+) -> Result<PathBuf>
+where
+    F: FnMut(u64, u64),
+{
     fs::create_dir_all(cache_dir)?;
     let filename = format!("FlowDownload-v{}.ipa", version.version);
     let dest = cache_dir.join(filename);
@@ -74,10 +85,12 @@ pub async fn download_ipa(version: &AltVersion, cache_dir: &Path) -> Result<Path
         if let Some(expected) = &version.sha256 {
             if verify_sha256(&dest, expected).is_ok() {
                 println!("Using cached IPA: {}", dest.display());
+                on_progress(version.size, version.size);
                 return Ok(dest);
             }
         } else if fs::metadata(&dest)?.len() == version.size {
             println!("Using cached IPA: {}", dest.display());
+            on_progress(version.size, version.size);
             return Ok(dest);
         }
     }
@@ -93,13 +106,17 @@ pub async fn download_ipa(version: &AltVersion, cache_dir: &Path) -> Result<Path
         .await?
         .error_for_status()?;
 
+    let total = resp.content_length().unwrap_or(version.size).max(1);
     let tmp = dest.with_extension("ipa.part");
     let mut file = File::create(&tmp)?;
     let mut hasher = Sha256::new();
+    let mut downloaded: u64 = 0;
 
     while let Some(chunk) = resp.chunk().await? {
         file.write_all(&chunk)?;
         hasher.update(&chunk);
+        downloaded += chunk.len() as u64;
+        on_progress(downloaded, total);
     }
     file.flush()?;
     drop(file);

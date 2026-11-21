@@ -34,7 +34,8 @@ pub fn is_app_id_limit_error(err_msg: &str) -> bool {
 
 #[cfg(feature = "sideload")]
 pub async fn list_usb_devices() -> Result<Vec<UsbDeviceSummary>> {
-    use idevice::usbmuxd::UsbmuxdConnection;
+    use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
+    use isideload::util::device::IdeviceInfo;
 
     let mut conn = UsbmuxdConnection::default()
         .await
@@ -45,8 +46,13 @@ pub async fn list_usb_devices() -> Result<Vec<UsbDeviceSummary>> {
         .map_err(|e| anyhow::anyhow!("Failed to list USB devices: {e}"))?;
     let mut out = Vec::new();
     for dev in devs {
+        let provider = dev.to_provider(UsbmuxdAddr::default(), "FlowDownload-Installer");
+        let name = match IdeviceInfo::from_device(&provider).await {
+            Ok(info) if !info.name.trim().is_empty() => info.name,
+            _ => format!("iPhone ({:?})", dev.connection_type),
+        };
         out.push(UsbDeviceSummary {
-            name: format!("iOS Device ({:?})", dev.connection_type),
+            name,
             udid: dev.udid,
             product_version: String::from("iOS"),
         });
@@ -85,12 +91,15 @@ pub async fn sideload_ipa(
         |pct| {
             println!("  Progress: {:.0}%", pct);
         },
+        |line| {
+            println!("{line}");
+        },
     )
     .await
 }
 
 #[cfg(feature = "sideload")]
-pub async fn sideload_ipa_with_callbacks<F2fa, Fut2fa, FProg>(
+pub async fn sideload_ipa_with_callbacks<F2fa, Fut2fa, FProg, FLog>(
     ipa_path: &Path,
     apple_id: &str,
     password: &str,
@@ -98,11 +107,13 @@ pub async fn sideload_ipa_with_callbacks<F2fa, Fut2fa, FProg>(
     profile: InstallProfile,
     on_two_factor: F2fa,
     on_progress: FProg,
+    on_log: FLog,
 ) -> Result<()>
 where
     F2fa: Fn() -> Fut2fa + Send + Sync + 'static,
     Fut2fa: Future<Output = String> + Send + 'static,
     FProg: Fn(f32) + Send + Sync + Clone + 'static,
+    FLog: Fn(&str) + Send + Sync + Clone + 'static,
 {
     use idevice::usbmuxd::{UsbmuxdAddr, UsbmuxdConnection};
     use isideload::{
@@ -126,7 +137,7 @@ where
 
     let _ = isideload::init();
 
-    println!("Connecting to usbmuxd...");
+    on_log("Connecting to usbmuxd...");
     let mut conn = UsbmuxdConnection::default()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to usbmuxd: {e}"))?;
@@ -139,27 +150,38 @@ where
         .next()
         .ok_or_else(|| anyhow::anyhow!("No iOS USB device found. Plug in your iPhone and tap Trust."))?;
 
-    println!("Using device UDID: {}", device.udid);
+    on_log(&format!("Using USB device UDID: {}", device.udid));
     let provider = device.to_provider(UsbmuxdAddr::default(), "FlowDownload-Installer");
 
-    println!("Authenticating Apple ID via Anisette ({anisette_url})...");
+    on_log(&format!("Initializing Anisette v3 ({anisette_url})..."));
     let storage = Box::new(new_storage());
     let anisette = RemoteV3AnisetteProvider::new(anisette_url, storage, "0".to_string())
         .map_err(|e| anyhow::anyhow!("Anisette init failed: {e}"))?;
 
+    on_log("Signing in to Apple ID...");
     let two_fa_cb = Arc::new(on_two_factor);
+    let log_for_2fa = on_log.clone();
     let mut account = AppleAccount::builder(apple_id)
         .anisette_provider(anisette)
         .login(password, move |_params: TwoFactorCallbackParams| {
             let cb = Arc::clone(&two_fa_cb);
+            let log = log_for_2fa.clone();
             async move {
+                log("Two-factor authentication code requested...");
                 let code = cb().await;
-                Ok(TwoFactorCallbackResponse::SubmitCode(code))
+                if code.trim().is_empty() {
+                    log("2FA cancelled by user.");
+                    Ok(TwoFactorCallbackResponse::Abort)
+                } else {
+                    log("Submitting 2FA code...");
+                    Ok(TwoFactorCallbackResponse::SubmitCode(code))
+                }
             }
         })
         .await
         .map_err(|e| anyhow::anyhow!("Apple ID login failed: {e}"))?;
 
+    on_log("Creating Apple Developer session...");
     let dev_session = DeveloperSession::from_account(&mut account)
         .await
         .map_err(|e| anyhow::anyhow!("Developer session failed: {e}"))?;
@@ -179,7 +201,7 @@ where
         .extensions_behavior(ExtensionsBehaviorSelection::Fixed(ext_behavior))
         .build();
 
-    println!("Signing and installing {}...", ipa_path.display());
+    on_log(&format!("Signing and installing {}...", ipa_path.display()));
     sideloader
         .install_app(
             &provider,
@@ -196,7 +218,7 @@ where
         .await
         .map_err(|e| anyhow::anyhow!("Sideload failed: {e}"))?;
 
-    println!("Installed FlowDownload successfully!");
+    on_log("Installed FlowDownload successfully!");
     Ok(())
 }
 

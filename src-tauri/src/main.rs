@@ -1,10 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use flowdownload_installer::feed::{download_ipa, fetch_latest_release, AltVersion, DEFAULT_SOURCE_URL};
+use flowdownload_installer::feed::{
+    download_ipa_with_progress, fetch_latest_release, AltVersion, DEFAULT_SOURCE_URL,
+};
 use flowdownload_installer::ipa::prepare_ipa_for_profile;
 use flowdownload_installer::profile::InstallProfile;
 use flowdownload_installer::sideload::{self, UsbDeviceSummary};
 use serde::Serialize;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{oneshot, Mutex};
@@ -17,6 +22,15 @@ struct AppState {
 struct ProgressPayload {
     stage: String,
     percent: f32,
+}
+
+fn emit_log(app: &AppHandle, log_path: Option<&PathBuf>, line: &str) {
+    let _ = app.emit("sideload-log", line.to_string());
+    if let Some(path) = log_path {
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{line}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -54,17 +68,31 @@ async fn start_install(
         _ => InstallProfile::Full,
     };
 
+    let log_path = app.path().app_log_dir().ok().map(|dir| {
+        let _ = fs::create_dir_all(&dir);
+        dir.join("installer.log")
+    });
+
+    emit_log(&app, log_path.as_ref(), &format!("Starting install (profile: {profile})"));
     let _ = app.emit(
         "sideload-progress",
         ProgressPayload {
             stage: "Fetching release...".into(),
-            percent: 5.0,
+            percent: 3.0,
         },
     );
 
-    let (_meta, latest) = fetch_latest_release(DEFAULT_SOURCE_URL)
-        .await
-        .map_err(|e| e.to_string())?;
+    let (_meta, latest) = fetch_latest_release(DEFAULT_SOURCE_URL).await.map_err(|e| {
+        let msg = format!("Release check failed: {e}");
+        emit_log(&app, log_path.as_ref(), &msg);
+        msg
+    })?;
+
+    emit_log(
+        &app,
+        log_path.as_ref(),
+        &format!("Latest release: v{} ({:.1} MB)", latest.version, latest.size as f64 / 1_000_000.0),
+    );
 
     let cache_dir = app
         .path()
@@ -72,24 +100,61 @@ async fn start_install(
         .map_err(|e| e.to_string())?
         .join("FlowDownload");
 
+    let app_dl = app.clone();
+    let mut last_pct: i32 = -1;
+    let raw_ipa = download_ipa_with_progress(&latest, &cache_dir, |done, total| {
+        let ratio = (done as f64 / total.max(1) as f64).clamp(0.0, 1.0);
+        let pct = (5.0 + ratio * 20.0) as f32;
+        let rounded = pct as i32;
+        if rounded != last_pct {
+            last_pct = rounded;
+            let _ = app_dl.emit(
+                "sideload-progress",
+                ProgressPayload {
+                    stage: format!(
+                        "Downloading IPA ({:.1} / {:.1} MB)...",
+                        done as f64 / 1_000_000.0,
+                        total as f64 / 1_000_000.0
+                    ),
+                    percent: pct,
+                },
+            );
+        }
+    })
+    .await
+    .map_err(|e| {
+        let msg = format!("IPA download failed: {e}");
+        emit_log(&app, log_path.as_ref(), &msg);
+        msg
+    })?;
+
+    emit_log(&app, log_path.as_ref(), &format!("IPA ready: {}", raw_ipa.display()));
     let _ = app.emit(
         "sideload-progress",
         ProgressPayload {
-            stage: "Downloading & verifying IPA...".into(),
-            percent: 20.0,
+            stage: "Preparing app bundle...".into(),
+            percent: 27.0,
         },
     );
 
-    let raw_ipa = download_ipa(&latest, &cache_dir)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let prepared_ipa = prepare_ipa_for_profile(&raw_ipa, install_profile, &cache_dir)
-        .map_err(|e| e.to_string())?;
+    let raw_clone = raw_ipa.clone();
+    let cache_clone = cache_dir.clone();
+    let prepared_ipa = tokio::task::spawn_blocking(move || {
+        prepare_ipa_for_profile(&raw_clone, install_profile, &cache_clone)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| {
+        let msg = format!("Bundle preparation failed: {e}");
+        emit_log(&app, log_path.as_ref(), &msg);
+        msg
+    })?;
 
     let two_fa_slot = Arc::clone(&state.two_factor_tx);
     let app_for_2fa = app.clone();
     let app_for_prog = app.clone();
+    let app_for_log = app.clone();
+    let log_path_clone = log_path.clone();
 
     sideload::sideload_ipa_with_callbacks(
         &prepared_ipa,
@@ -117,10 +182,14 @@ async fn start_install(
                 },
             );
         },
+        move |line| {
+            emit_log(&app_for_log, log_path_clone.as_ref(), line);
+        },
     )
     .await
     .map_err(|e| {
         let msg = e.to_string();
+        emit_log(&app, log_path.as_ref(), &format!("ERROR: {msg}"));
         if sideload::is_app_id_limit_error(&msg) {
             format!("APP_ID_LIMIT:{msg}")
         } else {

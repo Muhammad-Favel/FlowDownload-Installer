@@ -375,6 +375,36 @@ body {
   color: var(--text-muted);
 }
 
+.logs-drawer {
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.logs-drawer summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  list-style: none;
+}
+
+.logs-body {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

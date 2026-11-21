@@ -69,6 +69,26 @@ async function refreshDevices() {
 
 document.getElementById("refreshDevicesBtn").addEventListener("click", refreshDevices);
 
+function appendLog(line) {
+  const body = document.getElementById("logsBody");
+  if (!body) return;
+  if (body.textContent === "Ready.") body.textContent = "";
+  body.textContent += (body.textContent ? "\n" : "") + line;
+  body.scrollTop = body.scrollHeight;
+}
+
+document.getElementById("copyLogsBtn").addEventListener("click", async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const body = document.getElementById("logsBody");
+  if (!body) return;
+  try {
+    await navigator.clipboard.writeText(body.textContent);
+    e.target.textContent = "Copied";
+    setTimeout(() => { e.target.textContent = "Copy"; }, 1400);
+  } catch {}
+});
+
 document.getElementById("installForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!invoke) return;
@@ -82,11 +102,15 @@ document.getElementById("installForm").addEventListener("submit", async (e) => {
   const progressFill = document.getElementById("progressFill");
   const errorBox = document.getElementById("errorBox");
   const successBox = document.getElementById("successBox");
+  const logsDrawer = document.getElementById("logsDrawer");
+  const logsBody = document.getElementById("logsBody");
 
   errorBox.hidden = true;
   successBox.hidden = true;
   progressWrap.hidden = false;
-  progressLabel.textContent = "Downloading & signing...";
+  if (logsBody) logsBody.textContent = "";
+  if (logsDrawer) logsDrawer.open = true;
+  progressLabel.textContent = "Starting...";
   progressPct.textContent = "0%";
   progressFill.style.width = "0%";
   installBtn.disabled = true;
@@ -103,6 +127,7 @@ document.getElementById("installForm").addEventListener("submit", async (e) => {
     successBox.hidden = false;
   } catch (err) {
     const msg = String(err);
+    appendLog(`ERROR: ${msg}`);
     if (msg.startsWith("APP_ID_LIMIT:")) {
       errorBox.innerHTML = `<strong>3-App-ID Limit Reached:</strong> ${msg.replace("APP_ID_LIMIT:", "")} <br>Switch to <strong>Share Only (2 IDs)</strong> or <strong>Core (1 ID)</strong> above and retry.`;
     } else {
@@ -122,7 +147,12 @@ if (listen) {
     document.getElementById("progressFill").style.width = `${pct}%`;
   });
 
+  listen("sideload-log", (event) => {
+    appendLog(String(event.payload || ""));
+  });
+
   listen("two-factor-required", () => {
+    appendLog("Waiting for 6-digit 2FA code...");
     const modal = document.getElementById("twoFaModal");
     const input = document.getElementById("twoFaInput");
     input.value = "";
