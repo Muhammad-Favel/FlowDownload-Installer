@@ -52,3 +52,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: .
+      - name: Upload Desktop Bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowdownload-installer-desktop-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
