@@ -6,11 +6,12 @@ use flowdownload_installer::feed::{
 use flowdownload_installer::ipa::prepare_ipa_for_profile;
 use flowdownload_installer::profile::InstallProfile;
 use flowdownload_installer::sideload::{self, UsbDeviceSummary};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{oneshot, Mutex};
 
@@ -22,6 +23,30 @@ struct AppState {
 struct ProgressPayload {
     stage: String,
     percent: f32,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedInstallState {
+    last_installed_at: u64,
+    expires_at: u64,
+    apple_id: String,
+    profile: String,
+    version: String,
+}
+
+fn install_state_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("install-state.json"))
+}
+
+#[tauri::command]
+fn get_install_state(app: AppHandle) -> Option<SavedInstallState> {
+    let path = install_state_path(&app)?;
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
 }
 
 fn emit_log(app: &AppHandle, log_path: Option<&PathBuf>, line: &str) {
@@ -197,6 +222,26 @@ async fn start_install(
         }
     })?;
 
+    if let Some(state_path) = install_state_path(&app) {
+        if let Some(parent) = state_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let saved = SavedInstallState {
+            last_installed_at: now,
+            expires_at: now + 7 * 86_400,
+            apple_id,
+            profile,
+            version: latest.version,
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&saved) {
+            let _ = fs::write(state_path, json);
+        }
+    }
+
     Ok(())
 }
 
@@ -214,6 +259,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_latest_release,
+            get_install_state,
             list_usb_devices,
             start_install,
             submit_two_factor_code

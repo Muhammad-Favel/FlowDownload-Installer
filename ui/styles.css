@@ -189,6 +189,23 @@ body {
   border-color: var(--accent);
 }
 
+.expiry-track {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  overflow: hidden;
+}
+
+.expiry-fill {
+  height: 100%;
+  background: var(--ok);
+  transition: width 200ms var(--ease);
+}
+
+.expiry-fill.is-warning { background: #f59e0b; }
+.expiry-fill.is-expired { background: var(--danger); }
+
 .profile-list {
   display: flex;
   flex-direction: column;

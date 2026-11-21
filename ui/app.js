@@ -125,6 +125,7 @@ document.getElementById("installForm").addEventListener("submit", async (e) => {
     progressPct.textContent = "100%";
     progressFill.style.width = "100%";
     successBox.hidden = false;
+    refreshInstallState();
   } catch (err) {
     const msg = String(err);
     appendLog(`ERROR: ${msg}`);
@@ -172,6 +173,54 @@ document.getElementById("twoFaCancel").addEventListener("click", async () => {
   if (invoke) await invoke("submit_two_factor_code", { code: "" });
 });
 
+async function refreshInstallState() {
+  const badge = document.getElementById("expiryBadge");
+  const fill = document.getElementById("expiryFill");
+  const note = document.getElementById("expiryNote");
+  const btn = document.getElementById("installBtn");
+  const appleInput = document.getElementById("appleIdInput");
+  if (!invoke) return;
+
+  try {
+    const state = await invoke("get_install_state");
+    if (!state) {
+      badge.textContent = "Not installed";
+      fill.style.width = "0%";
+      return;
+    }
+
+    if (state.appleId && !appleInput.value) {
+      appleInput.value = state.appleId;
+    }
+    if (state.profile && PROFILE_IDS[state.profile]) {
+      selectProfile(state.profile);
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const totalSec = 7 * 86400;
+    const remSec = state.expiresAt - nowSec;
+    const pct = Math.max(0, Math.min(100, (remSec / totalSec) * 100));
+
+    fill.classList.remove("is-warning", "is-expired");
+    if (remSec <= 0) {
+      badge.textContent = "Expired · Refresh needed";
+      fill.style.width = "100%";
+      fill.classList.add("is-expired");
+    } else {
+      const days = Math.floor(remSec / 86400);
+      const hours = Math.floor((remSec % 86400) / 3600);
+      badge.textContent = `${days}d ${hours}h left`;
+      fill.style.width = `${pct.toFixed(1)}%`;
+      if (days < 2) fill.classList.add("is-warning");
+    }
+
+    const expDate = new Date(state.expiresAt * 1000).toLocaleDateString();
+    note.textContent = `Signed with ${state.appleId} (${state.profile}) · Expires ${expDate}. Keep FlowDownload on your iPhone and refresh below to keep all app data.`;
+    btn.textContent = "Refresh 7-day signature";
+  } catch {}
+}
+
 refreshRelease();
+refreshInstallState();
 refreshDevices();
 setInterval(refreshDevices, 3000);
