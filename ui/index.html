@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlowDownload Installer</title>
+  <link rel="icon" type="image/png" href="assets/favicon-dark.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="window-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-icon" src="assets/app-icon.png" alt="FlowDownload icon" width="28" height="28">
+        <div class="brand-copy">
+          <h1>FlowDownload</h1>
+          <span class="brand-sub">iOS USB Installer</span>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <span class="mono meta-text" id="releaseBadge">Checking release</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="pane">
+        <div class="pane-head">
+          <h2>Target device</h2>
+          <button type="button" class="btn-ghost" id="refreshDevicesBtn">Refresh</button>
+        </div>
+        <div class="device-row" id="deviceStatus">
+          <span class="status-dot" id="deviceDot"></span>
+          <div class="device-copy">
+            <div class="device-title" id="deviceTitle">Scanning USB</div>
+            <div class="device-sub mono" id="deviceSub">Connect iPhone via USB and tap Trust</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="pane-head">
+          <h2>App ID budget</h2>
+          <span class="mono budget-count" id="budgetCount">3 / 3 IDs</span>
+        </div>
+
+        <div class="budget-meter" aria-hidden="true">
+          <span class="budget-slot is-filled" id="slot1"></span>
+          <span class="budget-slot is-filled" id="slot2"></span>
+          <span class="budget-slot is-filled" id="slot3"></span>
+        </div>
+
+        <div class="profile-list" id="profileGrid">
+          <button type="button" class="profile-row is-selected" data-profile="full">
+            <div class="profile-row-main">
+              <span class="profile-name">Full</span>
+              <span class="profile-desc">App, Share Sheet, Safari extension</span>
+            </div>
+            <span class="mono profile-cost">3 IDs</span>
+          </button>
+          <button type="button" class="profile-row" data-profile="share-only">
+            <div class="profile-row-main">
+              <span class="profile-name">Share Only</span>
+              <span class="profile-desc">App and Share Sheet, no Safari popup</span>
+            </div>
+            <span class="mono profile-cost">2 IDs</span>
+          </button>
+          <button type="button" class="profile-row" data-profile="core">
+            <div class="profile-row-main">
+              <span class="profile-name">Core</span>
+              <span class="profile-desc">Boost, libtorrent, browser, USB export</span>
+            </div>
+            <span class="mono profile-cost">1 ID</span>
+          </button>
+        </div>
+
+        <p class="tradeoff-note" id="tradeoffBox"></p>
+      </section>
+
+      <section class="pane">
+        <div class="pane-head">
+          <h2>Sign and install</h2>
+          <span class="mono meta-text">Anisette v3</span>
+        </div>
+
+        <form id="installForm" class="form-stack">
+          <label class="field">
+            <span>Apple ID</span>
+            <input type="email" id="appleIdInput" placeholder="name@icloud.com" required autocomplete="username">
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" id="passwordInput" placeholder="App-specific or account password" required autocomplete="current-password">
+          </label>
+          <button type="submit" class="btn-primary" id="installBtn">Download and install</button>
+        </form>
+
+        <div class="progress-wrap" id="progressWrap" hidden>
+          <div class="progress-head">
+            <span id="progressLabel">Preparing</span>
+            <span class="mono" id="progressPct">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="notice error" id="errorBox" hidden></div>
+        <div class="notice success" id="successBox" hidden>
+          <strong>Installed on your iPhone</strong>
+          <p>Enable Developer Mode in Settings → Privacy &amp; Security and trust your Apple ID in Settings → General → VPN &amp; Device Management.</p>
+        </div>
+
+        <div class="pane-foot">
+          <span>Free Apple IDs sign for 7 days and allow 3 active App IDs per device.</span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="twoFaModal" hidden>
+    <div class="modal">
+      <h3>Two-factor authentication</h3>
+      <p>Enter the 6-digit code shown on your Apple device</p>
+      <input type="text" id="twoFaInput" inputmode="numeric" maxlength="6" placeholder="123456" class="mono code-input">
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="twoFaCancel">Cancel</button>
+        <button type="button" class="btn-primary" id="twoFaSubmit">Verify</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+name: Build FlowDownload Installer (Windows + macOS)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build CLI (with sideloading)
+        run: cargo build --release --features sideload --target ${{ matrix.target }}
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowdownload-installer-cli-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/flowdownload-installer*
+
+  build-desktop-gui:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-latest
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Generate Tauri app icons from FlowDownload icon
+        run: npx --yes @tauri-apps/cli@2 icon src-tauri/icons/icon.png
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .

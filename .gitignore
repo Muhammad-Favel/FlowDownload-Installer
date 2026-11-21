@@ -1,0 +1,6 @@
+/target
+/src-tauri/target
+/.flowdownload-cache
+*.ipa
+*.part
+.DS_Store
