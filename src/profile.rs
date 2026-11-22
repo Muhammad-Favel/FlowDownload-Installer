@@ -46,7 +46,7 @@ impl InstallProfile {
                     "Safari toolbar extension & Share Sheet handoff",
                 ],
                 trade_offs: vec![
-                    "Uses all 3 App IDs on a free Apple ID (cannot coexist with other sideloaded apps like SideStore/AltStore).",
+                    "Uses all 3 App IDs on a free Apple ID (cannot coexist with other sideloaded apps).",
                 ],
             },
             InstallProfile::ShareOnly => ProfileReport {
