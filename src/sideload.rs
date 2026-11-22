@@ -191,13 +191,53 @@ where
         InstallProfile::Core => ExtensionsBehavior::ReuseMain,
     };
 
+    let log_for_certs = on_log.clone();
+    let max_certs_cb: MaxCertsCallbackBox = Box::new(move |certs| {
+        let log = log_for_certs.clone();
+        Box::pin(async move {
+            log(&format!("Account has {} existing development certificate(s):", certs.len()));
+            for c in &certs {
+                log(&format!(
+                    "  - serial={} name={:?} machine={:?} platform={:?}",
+                    c.serial_number.as_deref().unwrap_or("?"),
+                    c.name,
+                    c.machine_name,
+                    c.certificate_platform
+                ));
+            }
+            // Prefer revoking an explicitly iOS-platform cert (or non-xtool cert) first.
+            let chosen = certs
+                .iter()
+                .find(|c| {
+                    c.certificate_platform
+                        .as_deref()
+                        .map(|p| p.eq_ignore_ascii_case("ios"))
+                        .unwrap_or(false)
+                        && c.serial_number.as_deref() != Some("5581C8CA9798B1E9EC0F34899D6BD0D4")
+                })
+                .or_else(|| {
+                    certs
+                        .iter()
+                        .find(|c| c.serial_number.as_deref() != Some("5581C8CA9798B1E9EC0F34899D6BD0D4"))
+                })
+                .or_else(|| certs.first());
+
+            if let Some(serial) = chosen.and_then(|c| c.serial_number.clone()) {
+                log(&format!("Revoking certificate {serial} to make room..."));
+                Ok(Some(vec![serial]))
+            } else {
+                Ok(None)
+            }
+        })
+    });
+
     let mut sideloader =
         SideloaderBuilder::<MaxCertsCallbackBox, ExtensionsBehaviorCallbackBox>::new(
             dev_session,
             apple_id.to_string(),
         )
         .team_selection(TeamSelection::First)
-        .max_certs_behavior(MaxCertsBehavior::Revoke)
+        .max_certs_behavior(MaxCertsBehavior::Prompt(max_certs_cb))
         .extensions_behavior(ExtensionsBehaviorSelection::Fixed(ext_behavior))
         .build();
 
